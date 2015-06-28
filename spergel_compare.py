@@ -226,7 +226,7 @@ if __name__ == "__main__":
     parser.add_argument("--ny", type=int, default=32,
                         help="Default: 32")
     parser.add_argument("--scale", type=float, default=0.2,
-                        help="Default: 16")
+                        help="Default: 0.2")
     parser.add_argument("--seed", type=int, default=1234,
                         help="Default: 1234")
 

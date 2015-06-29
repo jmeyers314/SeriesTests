@@ -1,6 +1,6 @@
-""" Compare MCMC samples obtained using galsim.Spergel profile to those obtained using 
+""" Compare MCMC samples obtained using galsim.Spergel profile to those obtained using
 galsim.SpergelSeries profile.  We'll generate an image, (optionally adding noise, although I think
-this might not be necessary), and then sample from the likelihood P(image | params).  The outputs 
+this might not be necessary), and then sample from the likelihood P(image | params).  The outputs
 include triangle plots comparing the samples and moments up to all possible 4th central moments of
 the 6 parameters defining the galaxy images.
 """
@@ -70,9 +70,9 @@ def sample(args, do_series=False):
     @returns post-sampling emcee sampler object.
     """
     # 3 random number generators to seed
-    bd = galsim.BaseDeviate(args.seed) # for GalSim
-    rstate = np.random.mtrand.RandomState(args.seed).get_state() # for emcee
-    np.random.seed(args.seed) # for numpy functions called outside of emcee
+    bd = galsim.BaseDeviate(args.image_seed) # for GalSim
+    rstate = np.random.mtrand.RandomState(args.sample_seed + args.jmax).get_state() # for emcee
+    np.random.seed(args.sample_seed + args.jmax) # for numpy functions called outside of emcee
 
     nwalkers = args.nwalkers
     nsteps = args.nsteps
@@ -96,15 +96,19 @@ def sample(args, do_series=False):
     else:
         dummy_image = target_image.copy()
         noisevar = dummy_image.addNoiseSNR(noise, args.SNR, preserve_flux=True)
-    p0 = [p_initial + p_std*np.random.normal(size=ndim) for i in range(nwalkers)]
-    sampler = emcee.EnsembleSampler(nwalkers, ndim, lnprob,
-                                    args=[target_image, noisevar, args, do_series])
+    p0 = np.empty((nwalkers, ndim), dtype=float)
+    todo = np.ones(nwalkers, dtype=bool)
+    lnp_args = [target_image, noisevar, args, do_series]
+    while len(todo) > 0:
+        p0[todo] = [p_initial + p_std*np.random.normal(size=ndim) for i in range(len(todo))]
+        todo = np.nonzero([not np.isfinite(lnprob(p, *lnp_args)) for p in p0])[0]
+
+    sampler = emcee.EnsembleSampler(nwalkers, ndim, lnprob, args=lnp_args)
     sampler.run_mcmc(p0, nsteps, rstate0=rstate)
     return sampler
 
 def report(chain):
     N = chain.shape[0] * chain.shape[1]
-    print
     print "Results"
     print "-------"
     print "x0 = {:6.4f} +/- {:6.4f}".format(np.mean(chain[...,0]), np.std(chain[..., 0]))
@@ -131,17 +135,17 @@ def plot(spergel_sampler, series_samplers, args):
     extents = []
     for i in range(ndim):
         vals = spergel_samples[:,i]
-        for jmax in range(1, args.jmaxmax+1):
+        for jmax in range(args.jmaxmin, args.jmaxmax+1):
             series_samples = series_samplers[jmax].chain[:, args.nburn:, :].reshape((-1, ndim))
             vals = np.concatenate([vals, series_samples[:, i]])
         extents.append(np.percentile(vals, [0.5, 99.5]))
 
-    for jmax in range(1, args.jmaxmax+1):
+    for jmax in range(args.jmaxmin, args.jmaxmax+1):
         series_samples = series_samplers[jmax].chain[:, args.nburn:, :].reshape((-1, ndim))
         labels = ["x0", "y0", "HLR", "flux", "e1", "e2"]
         fig = triangle.corner(spergel_samples, labels=labels, truths=p_initial, extents=extents)
         fig = triangle.corner(series_samples, color='red', extents=extents, fig=fig)
-        
+
         fig.savefig(args.plot_prefix+"_jmax_{:02d}_triangle.png".format(jmax))
         plt.close(fig)
 
@@ -201,7 +205,7 @@ if __name__ == "__main__":
     parser.add_argument("--plot", action='store_true')
     parser.add_argument("--plot_prefix", type=str, default="spergel_compare",
                         help="Default: spergel_compare")
-    parser.add_argument("--outfn", type=str, 
+    parser.add_argument("--outfn", type=str,
                         help="Default: None")
 
     parser.add_argument("--x0", type=float, default=0.0,
@@ -219,7 +223,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--SNR", type=float, default=40.0,
                         help="Default: 40")
-    parser.add_argument("--noisy_image", action='store_true', 
+    parser.add_argument("--noisy_image", action='store_true',
                         help="Default: unset")
     parser.add_argument("--nx", type=int, default=32,
                         help="Default: 32")
@@ -227,7 +231,9 @@ if __name__ == "__main__":
                         help="Default: 32")
     parser.add_argument("--scale", type=float, default=0.2,
                         help="Default: 0.2")
-    parser.add_argument("--seed", type=int, default=1234,
+    parser.add_argument("--sample_seed", type=int, default=1234,
+                        help="Default: 1234")
+    parser.add_argument("--image_seed", type=int, default=1234,
                         help="Default: 1234")
 
     parser.add_argument("--PSF_beta", type=float, default=0.3,
@@ -237,27 +243,39 @@ if __name__ == "__main__":
 
     parser.add_argument("--nu", type=float, default=0.0,
                         help="Default: 0.0")
-    parser.add_argument("--jmaxmax", type=int, default=7,
-                        help="Default: 10")
+
+    parser.add_argument("--jmaxmin", type=int,
+                        help="Default: None")
+    parser.add_argument("--jmaxmax", type=int,
+                        help="Default: None")
+    parser.add_argument("--jmax", type=int, default=7,
+                        help="Default: 7")
 
     args = parser.parse_args()
 
     # Sample first using exact Spergel profile
     spergel_sampler = sample(args, do_series=False)
     spergel_moments = moments(spergel_sampler.flatchain)
+    print
+    print "Exact profile:"
     report(spergel_sampler.chain)
-    
+
+    # Now sample SpergelSeries profiles
     series_samplers = {}
     series_momentss = {}
-    for jmax in range(1, args.jmaxmax+1):
+    if args.jmaxmin is None:
+        args.jmaxmin = args.jmaxmax = args.jmax
+    for jmax in range(args.jmaxmin, args.jmaxmax+1):
         args.jmax = jmax
         series_samplers[jmax] = sample(args, do_series=True)
         series_momentss[jmax] = moments(series_samplers[jmax].flatchain)
+        print
+        print "Series profile (jmax={})".format(jmax)
         report(series_samplers[jmax].chain)
 
     if args.plot:
         plot(spergel_sampler, series_samplers, args)
-    
+
     if args.outfn is not None:
         out = {'args':args,
                'spergel_moments':spergel_moments,

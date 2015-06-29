@@ -142,7 +142,7 @@ def plot(spergel_sampler, series_samplers, args):
         fig = triangle.corner(spergel_samples, labels=labels, truths=p_initial, extents=extents)
         fig = triangle.corner(series_samples, color='red', extents=extents, fig=fig)
         
-        fig.savefig(args.plot_prefix+"_jmax{:02d}_triangle.png".format(jmax))
+        fig.savefig(args.plot_prefix+"_jmax_{:02d}_triangle.png".format(jmax))
         plt.close(fig)
 
     # # parameter traces

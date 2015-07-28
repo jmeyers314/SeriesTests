@@ -37,11 +37,11 @@ def getimage(p, args, do_series):
         gal = galsim.Spergel(nu=args.nu, half_light_radius=HLR, flux=flux)
     gal = gal.shear(e1=e1, e2=e2)
     gal = gal.shift(x0, y0)
+    final = galsim.Convolve(gal, psf)
     if do_series:
-        final = galsim.SeriesConvolution(gal, psf)
+        img = final.drawImage(nx=args.nx, ny=args.ny, scale=args.scale, iimult=args.iimult)
     else:
-        final = galsim.Convolve(gal, psf)
-    img = final.drawImage(nx=args.nx, ny=args.ny, scale=args.scale)
+        img = final.drawImage(nx=args.nx, ny=args.ny, scale=args.scale)
     return img
 
 def lnprob(p, target_image, noisevar, args, do_series):
@@ -231,13 +231,13 @@ if __name__ == "__main__":
                         help="Default: 32")
     parser.add_argument("--scale", type=float, default=0.2,
                         help="Default: 0.2")
+    parser.add_argument("--iimult", type=float, default=2.0,
+                        help="Default: 2.0")
     parser.add_argument("--sample_seed", type=int, default=1234,
                         help="Default: 1234")
     parser.add_argument("--image_seed", type=int, default=1234,
                         help="Default: 1234")
 
-    parser.add_argument("--PSF_beta", type=float, default=0.3,
-                        help="Default: 3.0")
     parser.add_argument("--PSF_FWHM", type=float, default=0.7,
                         help="Default: 0.7")
 
